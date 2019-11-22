@@ -384,3 +384,6 @@ fabric.properties
 tests/test_plugin_*.py
 # package/etc/conf.d/local/
 !package/etc/conf.d/local
+
+packer/output-virtualbox-iso/
+packer/packer_cache/
