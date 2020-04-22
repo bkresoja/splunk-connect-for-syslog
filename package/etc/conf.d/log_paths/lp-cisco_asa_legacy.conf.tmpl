@@ -1,6 +1,6 @@
 # Cisco ASA
 {{- /* The following provides a unique port source configuration if env var(s) are set */}}
-{{- $context := dict "port_id" "CISCO_ASA_LEGACY" "parser" "rfc3164" }}
+{{- $context := dict "port_id" "CISCO_ASA_LEGACY" "parser" "cisco_parser" }}
 {{- tmpl.Exec "t/source_network.t" $context }}
 
 log {
@@ -15,7 +15,7 @@ log {
         channel {
         # Listen on the default port (typically 514) for CISCO_ASA_LEGACY traffic
             source (s_DEFAULT);
-            filter(f_is_rfc3164);
+            filter(f_is_cisco_syslog);
             filter(f_cisco_asa);
             flags(final);
         };
@@ -40,6 +40,14 @@ log {
 {{- if or (conv.ToBool (getenv "SC4S_ARCHIVE_GLOBAL" "no")) (conv.ToBool (getenv "SC4S_ARCHIVE_CISCO_ASA_LEGACY" "no")) }}
     destination(d_archive);
 {{- end}}
+
+{{- if (print (getenv "SC4S_DEST_GLOBAL_ALTERNATES")) }}
+    {{ getenv "SC4S_DEST_GLOBAL_ALTERNATES" | regexp.ReplaceLiteral "^" "destination(" | regexp.ReplaceLiteral "[, ]+" ");\n    destination(" }});
+{{- end }}
+
+{{- if (print (getenv "SC4S_DEST_CISCO_ASA_LEGACY_ALTERNATES")) }}
+    {{ getenv "SC4S_DEST_CISCO_ASA_LEGACY_ALTERNATES" | regexp.ReplaceLiteral "^" "destination(" | regexp.ReplaceLiteral "[, ]+" ");\n    destination(" }});
+{{- end }}
 
     flags(flow-control,final);
 };

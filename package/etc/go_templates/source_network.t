@@ -1,3 +1,20 @@
+{{ define "UDP" }}
+        syslog (
+                transport("udp")
+                so-reuseport(1)
+                persist-name("{{ .port_id }}{{ .instance }}")
+                port({{ getenv (print "SC4S_LISTEN_" .port_id "_UDP_PORT") "514" }})
+                ip-protocol(4)
+                so-rcvbuf({{getenv "SC4S_SOURCE_UDP_SO_RCVBUFF" "1703936"}})
+                keep-hostname(yes)
+                keep-timestamp(yes)
+                use-dns(no)
+                use-fqdn(no)
+                chain-hostnames(off)
+                flags(validate-utf8, no-parse {{- if (conv.ToBool (getenv "SC4S_SOURCE_STORE_RAWMSG" "no")) }} store-raw-message {{- end}})
+            );   
+{{- end}}
+
 {{ define "T1" }}
 
 # The following is the source port declaration for {{ (print .port_id) }}
@@ -6,18 +23,11 @@ source s_{{ .port_id }} {
     channel {
         source {
 {{- if or (getenv (print "SC4S_LISTEN_" .port_id "_UDP_PORT")) (eq .port_id "DEFAULT") }}
-            syslog (
-                transport("udp")
-                port({{ getenv (print "SC4S_LISTEN_" .port_id "_UDP_PORT") "514" }})
-                ip-protocol(4)
-                so-rcvbuf({{getenv "SC4S_SOURCE_UDP_SO_RCVBUFF" "425984"}})
-                keep-hostname(yes)
-                keep-timestamp(yes)
-                use-dns(no)
-                use-fqdn(no)
-                chain-hostnames(off)
-                flags(no-parse)
-            );
+{{- $port_id := .port_id }}
+{{- range (math.Seq (getenv "SC4S_SOURCE_LISTEN_UDP_SOCKETS" "1"))}}
+{{- $context := dict "instance" . "port_id" $port_id }}
+{{- template "UDP"  $context }}
+{{- end}}
 {{- end}}
 {{- if or (getenv (print "SC4S_LISTEN_" .port_id "_TCP_PORT")) (eq .port_id "DEFAULT") }}
             network (
@@ -32,7 +42,7 @@ source s_{{ .port_id }} {
                 use-dns(no)
                 use-fqdn(no)
                 chain-hostnames(off)
-                flags(no-parse)
+                flags(validate-utf8, no-parse {{- if (conv.ToBool (getenv "SC4S_SOURCE_STORE_RAWMSG" "no")) }} store-raw-message {{- end}})
             );
 {{- end}}
 {{- if (conv.ToBool (getenv "SC4S_SOURCE_TLS_ENABLE" "no")) }}
@@ -48,7 +58,7 @@ source s_{{ .port_id }} {
                 use-dns(no)
                 use-fqdn(no)
                 chain-hostnames(off)
-                flags(no-parse)
+                flags(validate-utf8, no-parse {{- if (conv.ToBool (getenv "SC4S_SOURCE_STORE_RAWMSG" "no")) }} store-raw-message {{- end}})
                 tls(allow-compress(yes)
                     key-file("/opt/syslog-ng/tls/server.key")
                     cert-file("/opt/syslog-ng/tls/server.pem")
@@ -60,31 +70,31 @@ source s_{{ .port_id }} {
         };
 {{ if eq .parser "rfc3164" }}
         parser {
-            syslog-parser(time-zone({{getenv "SC4S_DEFAULT_TIMEZONE" "GMT"}}) flags(guess-timezone {{- if (conv.ToBool (getenv "SC4S_SOURCE_STORE_RAWMSG" "no")) }} store-raw-message {{- end}}));
+            syslog-parser(time-zone({{getenv "SC4S_DEFAULT_TIMEZONE" "GMT"}}) flags(assume-utf8, guess-timezone));
         };
         rewrite(set_rfc3164);
 {{ else if eq .parser "rfc3164_version" }}
 #       filter(f_rfc3164_version);
         rewrite(set_rfc3164_no_version_string);
         parser {
-            syslog-parser(time-zone({{- getenv "SC4S_DEFAULT_TIMEZONE" "GMT"}}) flags(guess-timezone {{- if (conv.ToBool (getenv "SC4S_SOURCE_STORE_RAWMSG" "no")) }} store-raw-message {{- end}}));
+            syslog-parser(time-zone({{- getenv "SC4S_DEFAULT_TIMEZONE" "GMT"}}) flags(assume-utf8, guess-timezone));
         };
         rewrite(set_rfc3164_version);
 {{ else if eq .parser "rfc5424_strict" }}
 #       filter(f_rfc5424_strict);
         parser {
-                syslog-parser(flags(syslog-protocol));
+                syslog-parser(flags(assume-utf8, syslog-protocol));
             };
         rewrite(set_rfc5424_strict);
 {{ else if eq .parser "rfc5424_noversion" }}
 #       filter(f_rfc5424_noversion);
         parser {
-                syslog-parser(flags(syslog-protocol));
+                syslog-parser(flags(assume-utf8, syslog-protocol));
             };
         rewrite(set_rfc5424_noversion);
 {{ else if eq .parser "cisco_parser" }}
-        parser {cisco-parser()};
-        rewrite(set_cisco_ios);
+        parser (cisco-parser-ex);
+        rewrite(set_cisco_syslog);
 {{ else if eq .parser "cisco_meraki_parser" }}
         parser (p_cisco_meraki);
         rewrite(set_rfc5424_epochtime);
@@ -96,20 +106,52 @@ source s_{{ .port_id }} {
         rewrite (r_cisco_ucm_message);
 {{ else if eq .parser "no_parse" }}
         rewrite(set_no_parse);
+{{ else if eq .parser "tcp_json" }}
+        filter { message('^{') and message('}$') };
+        parser {
+            json-parser(
+                prefix('.json.')
+            );
+        };
+        rewrite(set_tcp_json);    
 {{ else }}
         if {
             filter(f_citrix_netscaler_message);
             parser(p_citrix_netscaler_date);
             rewrite(r_citrix_netscaler_message);
         } elif {
+            filter(f_f5_bigip_message);
+            parser(p_f5_bigip_message);
+            rewrite(set_rfc3164);
+        } elif {
+            filter(f_f5_bigip_irule);
+            parser(p_f5_bigip_irule);
+            rewrite(set_rfc3164);
+        } elif {
+            filter(f_cef);                        
+            rewrite(set_cef_syslog);            
+            parser(p_cef);
+        } elif {
+            #JSON over IP its not syslog but it can work
+            filter { message('^{') and message('}$') };
+            parser {
+                json-parser(
+                    prefix('.json.')
+                );
+            };
+            rewrite(set_tcp_json);            
+        } elif {
             filter(f_rfc5424_strict);
             parser {
-                    syslog-parser(flags(syslog-protocol));
+                    syslog-parser(flags(assume-utf8, syslog-protocol));
                 };
             rewrite(set_rfc5424_strict);
         } elif {
             parser (p_cisco_meraki);
             rewrite(set_rfc5424_epochtime);
+        } elif {
+            parser(cisco-parser-ex);
+            rewrite(set_cisco_syslog);
         } elif {
             filter(f_cisco_ucm_message);
             parser (p_cisco_ucm_date);
@@ -118,7 +160,7 @@ source s_{{ .port_id }} {
             filter(f_rfc3164_version);
             rewrite(set_rfc3164_no_version_string);
             parser {
-                    syslog-parser(time-zone({{- getenv "SC4S_DEFAULT_TIMEZONE" "GMT"}}) flags(guess-timezone {{- if (conv.ToBool (getenv "SC4S_SOURCE_STORE_RAWMSG" "no")) }} store-raw-message {{- end}}));
+                    syslog-parser(time-zone({{- getenv "SC4S_DEFAULT_TIMEZONE" "GMT"}}) flags(assume-utf8, guess-timezone));
                 };
             rewrite(set_rfc3164_version);
         } elif {
@@ -127,14 +169,33 @@ source s_{{ .port_id }} {
                     syslog-parser(flags(syslog-protocol));
                 };
             rewrite(set_rfc5424_noversion);
-        } elif {
-            parser {cisco-parser()};
-            rewrite(set_cisco_ios);
         } else {
             parser {
-                syslog-parser(time-zone({{- getenv "SC4S_DEFAULT_TIMEZONE" "GMT"}}) flags(guess-timezone {{- if (conv.ToBool (getenv "SC4S_SOURCE_STORE_RAWMSG" "no")) }} store-raw-message {{- end}}));
+                syslog-parser(time-zone({{- getenv "SC4S_DEFAULT_TIMEZONE" "GMT"}}) flags(assume-utf8, guess-timezone));
             };
             rewrite(set_rfc3164);
+            if {
+                filter { message('^{') and message('}$') };
+                parser {
+                    json-parser(
+                        prefix('.json.')
+                    );
+                };
+                rewrite(set_rfc3164_json);  
+            } elif {
+                filter { match('^{' value('LEGACY_MSGHDR')) and message('}$') };
+                parser {
+                    json-parser(
+                        prefix('.json.')
+                        template('${LEGACY_MSGHDR}${MSG}')
+                    );
+                };
+                rewrite {
+                    set('${LEGACY_MSGHDR}${MSG}' value('MSG'));
+                    unset(value('LEGACY_MSGHDR'));
+                };
+                rewrite(set_rfc3164_json);              
+            };
         };
 {{ end }}
         rewrite(r_set_splunk_default);

@@ -21,13 +21,20 @@
 #cisco_ise,index,netauth
 #cisco_nx_os,index,netops
 #cisco_ucm,index,main
+#dell_rsa_secureid,index,netauth
 #citrix_netscaler,index,netfw
 #local_example,index,main
 #forcepoint_webprotect,index,netproxy
+#f5_bigip,index,netops
+#f5_bigip_irule,index,netops
+#f5_bigip_nix,index,netops
 #fortinet_fortios_event,index,netops
 #fortinet_fortios_log,index,netops
 #fortinet_fortios_traffic,index,netfw
 #fortinet_fortios_utm,index,netids
+#fortinet_fortweb_log,index,netops
+#fortinet_fortweb_traffic,index,netfw
+#fortinet_fortweb_attack,index,netids
 #infoblox_dns,index,netdns
 #infoblox_dhcp,index,netipam
 #infoblox_threat,index,netids
@@ -61,4 +68,5 @@
 #sc4s_events,index,main
 #sc4s_fallback,index,main
 #sc4s_metrics,index,em_metrics
+#symanrtec_ep,index,epav
 #vmware_nsx,index,main

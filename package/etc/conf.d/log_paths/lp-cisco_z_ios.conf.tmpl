@@ -15,7 +15,7 @@ log {
         channel {
         # Listen on the default port (typically 514) for CISCO_IOS traffic
             source (s_DEFAULT);
-            filter(f_is_cisco_ios);
+            filter(f_is_cisco_syslog);
             flags(final);
         };
     };
@@ -36,6 +36,14 @@ log {
 {{- if or (conv.ToBool (getenv "SC4S_ARCHIVE_GLOBAL" "no")) (conv.ToBool (getenv "SC4S_ARCHIVE_CISCO_IOS" "no")) }}
     destination(d_archive);
 {{- end}}
+
+{{- if (print (getenv "SC4S_DEST_GLOBAL_ALTERNATES")) }}
+    {{ getenv "SC4S_DEST_GLOBAL_ALTERNATES" | regexp.ReplaceLiteral "^" "destination(" | regexp.ReplaceLiteral "[, ]+" ");\n    destination(" }});
+{{- end }}
+
+{{- if (print (getenv "SC4S_DEST_CISCO_IOS_ALTERNATES")) }}
+    {{ getenv "SC4S_DEST_CISCO_IOS_ALTERNATES" | regexp.ReplaceLiteral "^" "destination(" | regexp.ReplaceLiteral "[, ]+" ");\n    destination(" }});
+{{- end }}
 
     flags(flow-control,final);
 };

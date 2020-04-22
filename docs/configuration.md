@@ -10,6 +10,10 @@ and variables needed to properly configure SC4S for your environment.
 | SPLUNK_HEC_URL | url | URL(s) of the Splunk endpoint, can be a single URL space seperated list |
 | SPLUNK_HEC_TOKEN | string | Splunk HTTP Event Collector Token |
 
+* NOTE:  Do _not_ configure HEC Acknowledgement when deploying the HEC token on the Splunk side; the underlying syslog-ng http
+destination does not support this feature.  Moreover, HEC Ack would significantly degrade performance for streaming data such as
+syslog.
+
 
 ## Splunk HEC Destination Configuration
 
@@ -20,21 +24,52 @@ and variables needed to properly configure SC4S for your environment.
 | SC4S_DEST_SPLUNK_HEC_SSL_VERSION |  comma separated list | Open SSL version list |
 | SC4S_DEST_SPLUNK_HEC_TLS_CA_FILE | path | Custom trusted cert file |
 | SC4S_DEST_SPLUNK_HEC_TLS_VERIFY | yes(default) or no | verify HTTP(s) certificate |
-| SC4S_DEST_SPLUNK_HEC_WORKERS | numeric | Number of destination workers (threads).  Set this to the number of HEC endpoints up to a max of 32. |
+| SC4S_DEST_SPLUNK_HEC_WORKERS | numeric | Number of destination workers (default: 10 threads).  This should rarely need to be changed; consult sc4s community for advice on appropriate setting in extreme high- or low-volume environments. |
+
+## Alternate Destination Configuration
+
+Alternate destinations other than HEC can be configured in SC4S. Global and/or source-specific forms of the
+variables below can be used to send data to alternate destinations.
+
+* NOTE:  The administrator is responsible for ensuring that the alternate destinations are configured in the
+local mount tree, and that syslog-ng properly parses them.
+
+* NOTE:  Do not include `d_hec` in any list of alternate destinations.  The configuration of the default HEC destination is configured
+separately from that of the alternates below.
+
+
+| Variable | Values        | Description |
+|----------|---------------|-------------|
+| SC4S_DEST_GLOBAL_ALTERNATES | Comma or space-separated list of syslog-ng destinations | Send all sources to alternate destinations |
+| SC4S_DEST_\<SOURCE\>_ALTERNATES | Comma or space-separated list of syslog-ng destiinations  | Send specific sources to alternate syslog-ng destinations, e.g. SC4S_DEST_CISCO_ASA_ALTERNATES |
 
 ## SC4S Disk Buffer Configuration
 
 Disk buffers in SC4S are allocated _per destination_.  In the future as more destinations are supported, a separate list of variables
 will be used for each.  This is why you see the `DEST_SPLUNK_HEC` in the variable names below.
+
 * NOTE:  "Reliable" disk buffering offers little advantage over "normal" disk buffering, at a significant performance penalty.
 For this reason, normal disk buffering is recommended.
+
 * NOTE:  If you add destinations locally in your configuration, pay attention to the _cumulative_ buffer requirements when allocating local
 disk.
-* Be sure to factor in the syslog-ng overhead (approx. 1.7x) when calculating the total buffer size needed.  See the "Data Resilience" section below for more information.
+
+* NOTE:  Disk buffer storage is configured via container volumes and is persistent between restarts of the conatiner.
+Be sure to account for disk space requirements on the local sc4s host when creating the container volumes in your respective
+runtime environment (outlined in the "getting started" runtime docs). These volumes can grow significantly if there is
+an extended outage to the SC4S destinations (HEC endpoints). See the "SC4S Disk Buffer Configuration" section on the Configruation
+page for more info.
+
 * NOTE:  The values for the variables below represent the _total_ sizes of the buffers for the destination.  These sizes are divded by the
 number of workers (threads) when setting the actual syslog-ng buffer options, because the buffer options apply to each worker rather than the
 entire destination.  Pay careful attention to this when using the "BYOE" version of SC4S, where direct access to the syslog-ng config files
-may hide this nuance.  To determine the proper size of the disk buffer, consult the "Data Resilience" section below.
+may hide this nuance.  Lastly, be sure to factor in the syslog-ng data structure overhead (approx. 2x raw message size) when calculating the
+total buffer size needed. To determine the proper size of the disk buffer, consult the "Data Resilience" section below.
+
+* NOTE: When changing the disk buffering directory, the new directory must exist.  If it doesn't, then syslog-ng will fail to start.
+
+* NOTE: When changing the disk buffering directory, if buffering has previously occurd on that instance, a persist file may exist which will prevent syslog-ng from changing the directory.
+
 
 | Variable | Values/Default   | Description |
 |----------|---------------|-------------|
@@ -43,6 +78,7 @@ may hide this nuance.  To determine the proper size of the disk buffer, consult 
 | SC4S_DEST_SPLUNK_HEC_DISKBUFF_MEMBUFSIZE | bytes (10241024) | Memory buffer size in bytes (used with reliable disk buffering) |
 | SC4S_DEST_SPLUNK_HEC_DISKBUFF_MEMBUFLENGTH |messages (15000) | Memory buffer size in message count (used with normal disk buffering) |
 | SC4S_DEST_SPLUNK_HEC_DISKBUFF_DISKBUFSIZE | bytes (53687091200) | size of local disk buffer in bytes (default 50 GB) |
+| SC4S_DEST_SPLUNK_HEC_DISKBUFF_DIR | path | location to store the diskbuffering files |
 
 ## Archive File Configuration
 
@@ -72,7 +108,8 @@ and/or move them to an archival system to avoid exhaustion of disk space.
 | SC4S_SOURCE_TCP_MAX_CONNECTIONS | 2000 | Max number of TCP Connections |
 | SC4S_SOURCE_TCP_IW_SIZE | 20000000 | Initial Window size |
 | SC4S_SOURCE_TCP_FETCH_LIMIT | 2000 | Number of events to fetch from server buffer at once |
-| SC4S_SOURCE_UDP_SO_RCVBUFF | 425984 | UDP server buffer size in bytes |
+| SC4S_SOURCE_UDP_SO_RCVBUFF | 1703936 | UDP server buffer size in bytes. Make sure that the host OS kernel is configured [similarly](gettingstarted/index.md#prerequisites). |
+| SC4S_SOURCE_LISTEN_UDP_SOCKETS | 5 | Number of kernel sockets per active UDP port, which configures multi-threading of the UDP input buffer in the kernel to prevent packet loss.  Total UDP input buffer is the multiple of SC4S_SOURCE_LISTEN_UDP_SOCKETS * SC4S_SOURCE_UDP_SO_RCVBUFF |
 | SC4S_SOURCE_STORE_RAWMSG | undefined or "no" | Store unprocessed "on the wire" raw message in the RAWMSG macro for use with the "fallback" sourcetype.  Do _not_ set this in production; substantial memory and disk overhead will result. Use for log path/filter development only. |
 
 ## Syslog Source TLS Certificate Configuration
@@ -194,6 +231,13 @@ For the Docker Swarm runtime, redeploy the updated service using the command:
 ```
 docker stack deploy --compose-file docker-compose.yml sc4s
 ```
+
+## Dropping all data by ip or subnet
+
+In some cases rogue or port-probing data can be sent to SC4S from misconfigured devices or vulnerability scanners. Update
+the `vendor_product_by_source.conf` filter `f_null_queue` with one or more ip/subnet masks to drop events without
+logging. Note that drop metrics will be recorded.
+
 
 ## Splunk Connect for Syslog output templates (syslog-ng templates)
 

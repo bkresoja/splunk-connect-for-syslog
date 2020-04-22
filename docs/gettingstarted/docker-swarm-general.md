@@ -69,6 +69,10 @@ particular the state of the disk buffer.  This is a required step.
 sudo docker volume create splunk-sc4s-var
 ```
 
+* NOTE:  Be sure to account for disk space requirements for the docker volume created above. This volume is located in
+`/var/lib/docker/volumes/` and could grow significantly if there is an extended outage to the SC4S destinations
+(typically HEC endpoints). See the "SC4S Disk Buffer Configuration" section on the Configruation page for more info.
+
 * Create the subdirectory ``/opt/sc4s/local``.  This will be used as a mount point for local overrides and configurations.
 
     * The empty ``local`` directory created above will populate with defaults and examples at the first invocation 
@@ -76,9 +80,10 @@ of SC4S for local configurations and context overrides. _Do not_ change the dire
 the files that are laid down; change (or add) only individual files if desired.  SC4S depends on the directory layout
 to read the local configurations properly.  See the notes below for which files will be preserved on restarts.
 
-    * In the `local/config` directory, there are example log path files (`lp-example.*`) and a filter (`example.conf`) in the
-appropriate subdirectories.  These should _not_ be used directly, but copied as examples for your own log path development.
-They _will_ get overwritten at each SC4S start.    
+    * In the `local/config/` directory there are four subdirectories that allow you to provide support for device types
+that are not provided out of the box in SC4S.  To get you started, there is an example log path template (`lp-example.conf.tmpl`)
+and a filter (`example.conf`) in the `log_paths` and `filters` subdirectories, respectively.  These should _not_ be used directly,
+but copied as templates for your own log path development.  They _will_ get overwritten at each SC4S start. 
 
     * In the `local/context` directory, if you change the "non-example" version of a file (e.g. `splunk_index.csv`) the changes
 will be preserved on a restart.  However, the "example" files _themselves_ (e.g. `splunk_index.csv.example`) will be updated
@@ -107,7 +112,9 @@ SC4S_DEST_SPLUNK_HEC_WORKERS=6
 #SC4S_DEST_SPLUNK_HEC_TLS_VERIFY=no
 ```
 
-* Update ``SPLUNK_HEC_URL`` and ``SPLUNK_HEC_TOKEN`` to reflect the correct values for your environment.
+* Update ``SPLUNK_HEC_URL`` and ``SPLUNK_HEC_TOKEN`` to reflect the correct values for your environment.  Do _not_ configure HEC
+Acknowledgement when deploying the HEC token on the Splunk side; the underlying syslog-ng http destination does not support this
+feature.  Moreover, HEC Ack would significantly degrade performance for streaming data such as syslog.
 
 * Set `SC4S_DEST_SPLUNK_HEC_WORKERS` to match the number of indexers and/or HWFs with HEC endpoints, up to a maxiumum of 32.
 If the endpoint is a VIP, match this value to the total number of indexers behind the load balancer.
@@ -220,7 +227,7 @@ index=* sourcetype=sc4s:events "starting up"
 ```
 This should yield the following event:
 ```ini
-syslog-ng starting up; version='3.25.1'
+syslog-ng starting up; version='3.26.1'
 ``` 
 when the startup process proceeds normally (without syntax errors). If you do not see this,
 follow the steps below before proceeding to deeper-level troubleshooting:
@@ -238,7 +245,7 @@ docker logs SC4S
 ```
 You should see events similar to those below in the output:
 ```ini
-Oct  1 03:13:35 77cd4776af41 syslog-ng[1]: syslog-ng starting up; version='3.25.1'
+Oct  1 03:13:35 77cd4776af41 syslog-ng[1]: syslog-ng starting up; version='3.26.1'
 Oct  1 05:29:55 77cd4776af41 syslog-ng[1]: Syslog connection accepted; fd='49', client='AF_INET(10.0.1.18:55010)', local='AF_INET(0.0.0.0:514)'
 Oct  1 05:29:55 77cd4776af41 syslog-ng[1]: Syslog connection closed; fd='49', client='AF_INET(10.0.1.18:55010)', local='AF_INET(0.0.0.0:514)'
 ```

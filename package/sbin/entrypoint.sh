@@ -13,6 +13,28 @@ if [ ${SC4S_DEST_MICROFOCUS_ARCSIGHT_HEC} ]; then export SC4S_DEST_CEF_HEC=$SC4S
 
 cd /opt/syslog-ng
 
+# SIGTERM-handler
+term_handler() {
+  if [ $pid -ne 0 ]; then
+    echo Terminating
+    kill -SIGTERM "$pid"
+    wait "$pid"
+  fi
+  exit 143; # 128 + 15 -- SIGTERM
+}
+
+# SIGHUP-handler
+hup_handler() {
+  if [ $pid -ne 0 ]; then
+    echo Reloading
+    kill -SIGHUP "$pid"
+  fi
+}
+
+trap 'kill ${!}; hup_handler' SIGHUP
+trap 'kill ${!}; term_handler' SIGTERM
+
+
 gomplate $(find . -name *.tmpl | sed -E 's/^(\/.*\/)*(.*)\..*$/--file=\2.tmpl --out=\2/') --template t=etc/go_templates/
 
 mkdir -p /opt/syslog-ng/etc/conf.d/local/context/
@@ -21,10 +43,23 @@ cp /opt/syslog-ng/etc/context_templates/* /opt/syslog-ng/etc/conf.d/local/contex
 for file in /opt/syslog-ng/etc/conf.d/local/context/*.example ; do cp --verbose -n $file ${file%.example}; done
 cp --verbose -R /opt/syslog-ng/etc/local_config/* /opt/syslog-ng/etc/conf.d/local/config/
 mkdir -p /opt/syslog-ng/var/log
+
+/opt/net-snmp/sbin/snmptrapd -Lf /opt/syslog-ng/var/log/snmptrapd.log
+
 echo syslog-ng checking config
 echo sc4s version=$(cat /VERSION)
 echo sc4s version=$(cat /VERSION) >/opt/syslog-ng/var/log/syslog-ng.out
 /opt/syslog-ng/sbin/syslog-ng -s >>/opt/syslog-ng/var/log/syslog-ng.out 2>/opt/syslog-ng/var/log/syslog-ng.err
 
 echo syslog-ng starting
-exec /opt/syslog-ng/sbin/syslog-ng $@
+/opt/syslog-ng/bin/persist-tool add /opt/syslog-ng/etc/reset_persist -o /opt/syslog-ng/var
+
+/opt/syslog-ng/sbin/syslog-ng $@ &
+pid="$!"
+# wait forever
+if [[ $@ != *"-s"* ]]; then
+  while true
+  do
+    tail -f /dev/null & wait ${!}
+  done
+fi

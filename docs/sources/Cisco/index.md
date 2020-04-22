@@ -97,7 +97,7 @@ index=<asconfigured> sourcetype=cisco:apic:*
 
 Verify timestamp, and host values match as expected    
 
-## Product - ASA (Pre Firepower)
+## Product - ASA AND FTD (Firepower)
 
 | Ref            | Link                                                                                                    |
 |----------------|---------------------------------------------------------------------------------------------------------|
@@ -109,9 +109,7 @@ Verify timestamp, and host values match as expected
 
 | sourcetype     | notes                                                                                                   |
 |----------------|---------------------------------------------------------------------------------------------------------|
-| cisco:asa      | None                                                                                                    |
-| cisco:pix      | Not supported                                                                                           |
-| cisco:fwsm     | Not supported                                                                                           |
+| cisco:asa      | cisco FTD Firepower will also use this source type                                                      |
 
 ### Sourcetype and Index Configuration
 
